@@ -1,6 +1,5 @@
 const express = require('express');
 const cors = require('cors');
-const session = require('express-session');
 require('dotenv').config();
 
 // Import routes
@@ -28,17 +27,6 @@ app.use(cors({
 }));
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
-
-// Session middleware
-app.use(session({
-  secret: process.env.SESSION_SECRET || 'manuflow-secret-key',
-  resave: false,
-  saveUninitialized: false,
-  cookie: {
-    secure: process.env.NODE_ENV === 'production',
-    maxAge: 24 * 60 * 60 * 1000 // 24 hours
-  }
-}));
 
 // Log all requests
 app.use((req, res, next) => {
@@ -80,7 +68,7 @@ app.use(errorHandler);
 // Start server
 app.listen(PORT, () => {
   console.log(`Server running on port ${PORT}`);
-  console.log(`API Base URL: ${process.env.API_BASE_URL || 'http://localhost:' + PORT}${API_BASE}`);
+  console.log(`API Base URL: ${'http://localhost:' + PORT + API_BASE}`);
 });
 
 // Handle unhandled promise rejections

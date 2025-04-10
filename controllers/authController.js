@@ -1,8 +1,20 @@
 const bcrypt = require('bcryptjs');
+const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 const db = require('../config/db');
-const { formatSuccess, formatError } = require('../utils/responseFormatter');
+const { formatSuccess } = require('../utils/responseFormatter');
 const { AppError } = require('../utils/errorHandler');
+
+/**
+ * Generate JWT Token
+ */
+const generateToken = (userId) => {
+  return jwt.sign(
+    { userId },
+    process.env.JWT_SECRET || 'manuflow-jwt-secret',
+    { expiresIn: process.env.JWT_EXPIRES_IN || '24h' }
+  );
+};
 
 /**
  * Login a user
@@ -60,8 +72,8 @@ const login = async (req, res, next) => {
       permissions[perm.resource].push(perm.action);
     });
 
-    // Store user ID in session
-    req.session.userId = user.id;
+    // Generate JWT token
+    const token = generateToken(user.id);
 
     // Update last login timestamp
     await db.query(
@@ -80,7 +92,10 @@ const login = async (req, res, next) => {
     };
 
     // Send the response
-    const { response, statusCode } = formatSuccess({ user: userData });
+    const { response, statusCode } = formatSuccess({ 
+      token,
+      user: userData 
+    });
 
     res.status(statusCode).json(response);
   } catch (error) {
@@ -94,20 +109,15 @@ const login = async (req, res, next) => {
  */
 const logout = async (req, res, next) => {
   try {
-    // Destroy the session
-    req.session.destroy((err) => {
-      if (err) {
-        throw new AppError('Error logging out', 'general');
-      }
-      
-      // Send the response
-      const { response, statusCode } = formatSuccess(
-        null,
-        'Successfully logged out'
-      );
-      
-      res.status(statusCode).json(response);
-    });
+    // With JWT, server-side logout is not required
+    // The client should simply discard the token
+    
+    const { response, statusCode } = formatSuccess(
+      null,
+      'Successfully logged out'
+    );
+    
+    res.status(statusCode).json(response);
   } catch (error) {
     next(error);
   }
@@ -196,8 +206,14 @@ const register = async (req, res, next) => {
       [userResult.rows[0].id]
     );
 
+    // Generate JWT token
+    const token = generateToken(userResult.rows[0].id);
+
     const { response, statusCode } = formatSuccess(
-      { user: userResult.rows[0] },
+      { 
+        token,
+        user: userResult.rows[0] 
+      },
       'User registered successfully',
       201
     );
