@@ -1,5 +1,4 @@
 const bcrypt = require('bcryptjs');
-const jwt = require('jsonwebtoken');
 const { validationResult } = require('express-validator');
 const db = require('../config/db');
 const { formatSuccess, formatError } = require('../utils/responseFormatter');
@@ -61,23 +60,8 @@ const login = async (req, res, next) => {
       permissions[perm.resource].push(perm.action);
     });
 
-    // Generate JWT token
-    const token = jwt.sign(
-      { userId: user.id },
-      process.env.JWT_SECRET,
-      { expiresIn: process.env.JWT_EXPIRES_IN }
-    );
-
-    // Calculate token expiration time
-    const expiresAt = new Date();
-    expiresAt.setHours(expiresAt.getHours() + 24); // 24 hours from now
-
-    // Store token in user_sessions table
-    await db.query(
-      `INSERT INTO user_sessions (user_id, token, ip_address, user_agent, expires_at)
-       VALUES ($1, $2, $3, $4, $5)`,
-      [user.id, token, req.ip, req.headers['user-agent'], expiresAt]
-    );
+    // Store user ID in session
+    req.session.userId = user.id;
 
     // Update last login timestamp
     await db.query(
@@ -96,10 +80,7 @@ const login = async (req, res, next) => {
     };
 
     // Send the response
-    const { response, statusCode } = formatSuccess({
-      token,
-      user: userData
-    });
+    const { response, statusCode } = formatSuccess({ user: userData });
 
     res.status(statusCode).json(response);
   } catch (error) {
@@ -113,22 +94,20 @@ const login = async (req, res, next) => {
  */
 const logout = async (req, res, next) => {
   try {
-    // Get the token from the authorization header
-    const token = req.headers.authorization.split(' ')[1];
-
-    // Remove the token from the user_sessions table
-    await db.query(
-      'DELETE FROM user_sessions WHERE token = $1',
-      [token]
-    );
-
-    // Send the response
-    const { response, statusCode } = formatSuccess(
-      null,
-      'Successfully logged out'
-    );
-
-    res.status(statusCode).json(response);
+    // Destroy the session
+    req.session.destroy((err) => {
+      if (err) {
+        throw new AppError('Error logging out', 'general');
+      }
+      
+      // Send the response
+      const { response, statusCode } = formatSuccess(
+        null,
+        'Successfully logged out'
+      );
+      
+      res.status(statusCode).json(response);
+    });
   } catch (error) {
     next(error);
   }
@@ -151,8 +130,87 @@ const getCurrentUser = async (req, res, next) => {
   }
 };
 
+/**
+ * Register a new user
+ * POST /api/auth/register
+ */
+const register = async (req, res, next) => {
+  try {
+    // Validate request
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      throw new AppError('Validation error', 'validation', errors.array());
+    }
+
+    const { name, email, password } = req.body;
+
+    // Check if email already exists
+    const emailCheck = await db.query(
+      'SELECT id FROM users WHERE email = $1 AND deleted_at IS NULL',
+      [email]
+    );
+
+    if (emailCheck.rows.length > 0) {
+      throw new AppError('Email already in use', 'validation');
+    }
+
+    // Get default role (sales)
+    const roleQuery = 'SELECT id FROM roles WHERE name = $1';
+    const roleResult = await db.query(roleQuery, ['sales']);
+
+    if (roleResult.rows.length === 0) {
+      throw new AppError('Default role not found', 'validation');
+    }
+
+    const roleId = roleResult.rows[0].id;
+
+    // Hash the password
+    const salt = await bcrypt.genSalt(10);
+    const passwordHash = await bcrypt.hash(password, salt);
+
+    // Insert the user
+    const insertQuery = `
+      INSERT INTO users (
+        name, 
+        email, 
+        password_hash, 
+        role_id
+      ) VALUES ($1, $2, $3, $4)
+      RETURNING 
+        id, 
+        name, 
+        email, 
+        created_at as "createdAt"
+    `;
+
+    const userResult = await db.query(insertQuery, [
+      name,
+      email,
+      passwordHash,
+      roleId
+    ]);
+
+    // Create notification settings for the user
+    await db.query(
+      'INSERT INTO notification_settings (user_id) VALUES ($1)',
+      [userResult.rows[0].id]
+    );
+
+    const { response, statusCode } = formatSuccess(
+      { user: userResult.rows[0] },
+      'User registered successfully',
+      201
+    );
+
+    res.status(statusCode).json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   login,
   logout,
-  getCurrentUser
+  getCurrentUser,
+  register
 };

@@ -1,34 +1,16 @@
-const jwt = require('jsonwebtoken');
 const { AppError } = require('../utils/errorHandler');
 const db = require('../config/db');
 
 /**
- * Authentication middleware to verify JWT tokens
+ * Authentication middleware using session-based authentication
  */
 const authenticate = async (req, res, next) => {
   try {
-    // Get the authorization header
-    const authHeader = req.headers.authorization;
+    // Get user ID from session
+    const userId = req.session.userId;
     
-    // Check if the authorization header exists
-    if (!authHeader || !authHeader.startsWith('Bearer ')) {
-      throw new AppError('Authentication token is required', 'authentication');
-    }
-
-    // Extract the token
-    const token = authHeader.split(' ')[1];
-
-    // Verify the token
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    
-    // Check if the token is in the user_sessions table
-    const sessionResult = await db.query(
-      'SELECT * FROM user_sessions WHERE token = $1 AND expires_at > NOW()',
-      [token]
-    );
-
-    if (sessionResult.rows.length === 0) {
-      throw new AppError('Invalid or expired token', 'authentication');
+    if (!userId) {
+      throw new AppError('Authentication required', 'authentication');
     }
     
     // Get the user
@@ -37,7 +19,7 @@ const authenticate = async (req, res, next) => {
        FROM users u
        JOIN roles r ON u.role_id = r.id
        WHERE u.id = $1 AND u.deleted_at IS NULL`,
-      [decoded.userId]
+      [userId]
     );
 
     if (userResult.rows.length === 0) {
@@ -74,11 +56,7 @@ const authenticate = async (req, res, next) => {
 
     next();
   } catch (error) {
-    if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
-      next(new AppError('Invalid or expired token', 'authentication'));
-    } else {
-      next(error);
-    }
+    next(error);
   }
 };
 

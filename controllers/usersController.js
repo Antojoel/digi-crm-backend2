@@ -150,11 +150,6 @@ const getUserById = async (req, res, next) => {
  */
 const createUser = async (req, res, next) => {
   try {
-    // Only super_admin can create users
-    if (req.user.role !== 'super_admin') {
-      throw new AppError('You do not have permission to create users', 'authorization');
-    }
-
     // Validate request
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -234,7 +229,6 @@ const createUser = async (req, res, next) => {
     next(error);
   }
 };
-
 /**
  * Update a user (admin or self)
  * PUT /api/users/:id

@@ -1,13 +1,9 @@
 const { Pool } = require('pg');
 require('dotenv').config();
 
-// Create a new PostgreSQL connection pool using environment variables
+// Create a new PostgreSQL connection pool using the connection string
 const pool = new Pool({
-  host: process.env.DB_HOST,
-  port: process.env.DB_PORT,
-  database: process.env.DB_NAME,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
+  connectionString: process.env.DATABASE_URL || 'postgresql://neondb_owner:npg_3MtK5PfyYlwh@ep-spring-bar-a1c8x0hb-pooler.ap-southeast-1.aws.neon.tech/neondb?sslmode=require'
 });
 
 // Test the database connection
