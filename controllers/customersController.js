@@ -333,6 +333,7 @@ const updateCustomer = async (req, res, next) => {
 const deleteCustomer = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const { force, reassignToCustomerId } = req.query;
     
     // Check if customer exists
     const checkQuery = `
@@ -363,12 +364,131 @@ const deleteCustomer = async (req, res, next) => {
     `;
     
     const leadsResult = await db.query(leadsQuery, [id]);
+    const leadCount = parseInt(leadsResult.rows[0].lead_count);
     
-    if (parseInt(leadsResult.rows[0].lead_count) > 0) {
-      throw new AppError('Cannot delete customer with associated leads', 'validation');
+    if (leadCount > 0) {
+      // If force delete is enabled
+      if (force === 'true') {
+        // Check if reassign customer is provided and valid
+        if (reassignToCustomerId) {
+          // Verify that the target customer exists
+          const targetCustomerQuery = `
+            SELECT id FROM customers 
+            WHERE id = $1 AND deleted_at IS NULL
+          `;
+          
+          const targetCustomerResult = await db.query(targetCustomerQuery, [reassignToCustomerId]);
+          
+          if (targetCustomerResult.rows.length === 0) {
+            throw new AppError('Target customer for reassignment not found', 'validation');
+          }
+          
+          // Start a transaction
+          const client = await db.pool.connect();
+          
+          try {
+            await client.query('BEGIN');
+            
+            // Reassign all leads to the new customer
+            const reassignQuery = `
+              UPDATE leads
+              SET customer_id = $1, updated_at = NOW()
+              WHERE customer_id = $2 AND deleted_at IS NULL
+            `;
+            
+            await client.query(reassignQuery, [reassignToCustomerId, id]);
+            
+            // Soft delete the original customer
+            const deleteQuery = `
+              UPDATE customers
+              SET deleted_at = NOW()
+              WHERE id = $1
+            `;
+            
+            await client.query(deleteQuery, [id]);
+            
+            await client.query('COMMIT');
+            
+            const { response, statusCode } = formatSuccess(
+              null,
+              `Customer deleted successfully. ${leadCount} leads reassigned to customer ID ${reassignToCustomerId}`
+            );
+            
+            return res.status(statusCode).json(response);
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          } finally {
+            client.release();
+          }
+        } else {
+          // If no reassignment target provided but force is true, 
+          // delete the associated leads
+          const client = await db.pool.connect();
+          
+          try {
+            await client.query('BEGIN');
+            
+            // Soft delete all leads associated with this customer
+            const deleteLeadsQuery = `
+              UPDATE leads
+              SET deleted_at = NOW()
+              WHERE customer_id = $1 AND deleted_at IS NULL
+            `;
+            
+            await client.query(deleteLeadsQuery, [id]);
+            
+            // Soft delete the customer
+            const deleteCustomerQuery = `
+              UPDATE customers
+              SET deleted_at = NOW()
+              WHERE id = $1
+            `;
+            
+            await client.query(deleteCustomerQuery, [id]);
+            
+            await client.query('COMMIT');
+            
+            const { response, statusCode } = formatSuccess(
+              null,
+              `Customer and ${leadCount} associated leads deleted successfully`
+            );
+            
+            return res.status(statusCode).json(response);
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          } finally {
+            client.release();
+          }
+        }
+      } else {
+        // If not force deleting, provide information about associated leads
+        const detailedLeadsQuery = `
+          SELECT id, deal_name as "dealName", amount, stage
+          FROM leads
+          WHERE customer_id = $1 AND deleted_at IS NULL
+          LIMIT 5
+        `;
+        
+        const detailedLeadsResult = await db.query(detailedLeadsQuery, [id]);
+        
+        // Prepare a helpful error message
+        const errorMessage = 'Cannot delete customer with associated leads';
+        const additionalInfo = {
+          totalLeads: leadCount,
+          sampleLeads: detailedLeadsResult.rows,
+          solutions: [
+            "Use '?force=true' to delete the customer and all associated leads",
+            "Use '?force=true&reassignToCustomerId=X' to reassign leads to another customer"
+          ]
+        };
+        
+        throw new AppError(errorMessage, 'validation', additionalInfo);
+      }
     }
     
-    // Soft delete the customer
+    // If no associated leads, proceed with normal deletion
     const deleteQuery = `
       UPDATE customers
       SET deleted_at = NOW()
@@ -388,10 +508,72 @@ const deleteCustomer = async (req, res, next) => {
   }
 };
 
+/**
+ * Get all available customers for reassignment
+ * GET /api/customers/available-for-reassignment
+ */
+const getAvailableCustomersForReassignment = async (req, res, next) => {
+  try {
+    // Get the customer ID to exclude (the one being deleted)
+    const { excludeId } = req.query;
+    
+    // Build query to get all active customers except the one being deleted
+    let query = `
+      SELECT 
+        c.id,
+        c.name,
+        c.email,
+        c.phone,
+        json_build_object(
+          'id', co.id,
+          'name', co.name
+        ) as company
+      FROM 
+        customers c
+      JOIN
+        companies co ON c.company_id = co.id
+      WHERE 
+        c.deleted_at IS NULL
+    `;
+    
+    const queryParams = [];
+    let paramIndex = 1;
+    
+    if (excludeId) {
+      query += ` AND c.id != $${paramIndex}`;
+      queryParams.push(excludeId);
+      paramIndex++;
+    }
+    
+    // Filter by user if not a super_admin
+    if (req.user.role !== 'super_admin') {
+      query += ` AND c.created_by = $${paramIndex}`;
+      queryParams.push(req.user.id);
+      paramIndex++;
+    }
+    
+    // Order by name for easier selection
+    query += ` ORDER BY c.name ASC`;
+    
+    // Execute the query
+    const customersResult = await db.query(query, queryParams);
+    
+    // Format response
+    const { response, statusCode } = formatSuccess({
+      customers: customersResult.rows
+    });
+    
+    res.status(statusCode).json(response);
+  } catch (error) {
+    next(error);
+  }
+};
+
 module.exports = {
   getAllCustomers,
   getCustomerById,
   createCustomer,
   updateCustomer,
-  deleteCustomer
+  deleteCustomer,
+  getAvailableCustomersForReassignment
 };

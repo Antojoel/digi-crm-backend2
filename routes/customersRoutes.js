@@ -5,7 +5,8 @@ const {
   getCustomerById, 
   createCustomer, 
   updateCustomer, 
-  deleteCustomer 
+  deleteCustomer,
+  getAvailableCustomersForReassignment
 } = require('../controllers/customersController');
 const { authenticate } = require('../middleware/auth');
 const { checkPermission } = require('../middleware/permissions');
@@ -24,6 +25,17 @@ router.get(
   ],
   checkPermission('customers', 'read'),
   getAllCustomers
+);
+
+// IMPORTANT: This route must come BEFORE any routes with path parameters like :id
+// Get available customers for reassignment
+router.get(
+  '/available-for-reassignment',
+  [
+    query('excludeId').optional().isInt().withMessage('Exclude ID must be an integer')
+  ],
+  checkPermission('customers', 'read'),
+  getAvailableCustomersForReassignment
 );
 
 // Get customer by ID
@@ -67,7 +79,9 @@ router.put(
 router.delete(
   '/:id',
   [
-    param('id').isInt().withMessage('Customer ID must be an integer')
+    param('id').isInt().withMessage('Customer ID must be an integer'),
+    query('force').optional().isBoolean().withMessage('Force must be a boolean'),
+    query('reassignToCustomerId').optional().isInt().withMessage('Reassign customer ID must be an integer')
   ],
   checkPermission('customers', 'delete'),
   deleteCustomer
