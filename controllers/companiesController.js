@@ -304,6 +304,7 @@ const updateCompany = async (req, res, next) => {
 const deleteCompany = async (req, res, next) => {
   try {
     const { id } = req.params;
+    const { force, reassignToCompanyId } = req.query;
     
     // Check if company exists
     const checkQuery = `
@@ -334,12 +335,143 @@ const deleteCompany = async (req, res, next) => {
     `;
     
     const customersResult = await db.query(customersQuery, [id]);
+    const customerCount = parseInt(customersResult.rows[0].customer_count);
     
-    if (parseInt(customersResult.rows[0].customer_count) > 0) {
-      throw new AppError('Cannot delete company with associated customers', 'validation');
+    if (customerCount > 0) {
+      // If force delete is enabled
+      if (force === 'true') {
+        // Check if reassign company is provided and valid
+        if (reassignToCompanyId) {
+          // Verify that the target company exists
+          const targetCompanyQuery = `
+            SELECT id FROM companies 
+            WHERE id = $1 AND deleted_at IS NULL
+          `;
+          
+          const targetCompanyResult = await db.query(targetCompanyQuery, [reassignToCompanyId]);
+          
+          if (targetCompanyResult.rows.length === 0) {
+            throw new AppError('Target company for reassignment not found', 'validation');
+          }
+          
+          // Start a transaction
+          const client = await db.pool.connect();
+          
+          try {
+            await client.query('BEGIN');
+            
+            // Reassign all customers to the new company
+            const reassignQuery = `
+              UPDATE customers
+              SET company_id = $1, updated_at = NOW()
+              WHERE company_id = $2 AND deleted_at IS NULL
+            `;
+            
+            await client.query(reassignQuery, [reassignToCompanyId, id]);
+            
+            // Soft delete the original company
+            const deleteQuery = `
+              UPDATE companies
+              SET deleted_at = NOW()
+              WHERE id = $1
+            `;
+            
+            await client.query(deleteQuery, [id]);
+            
+            await client.query('COMMIT');
+            
+            const { response, statusCode } = formatSuccess(
+              null,
+              `Company deleted successfully. ${customerCount} customers reassigned to company ID ${reassignToCompanyId}`
+            );
+            
+            return res.status(statusCode).json(response);
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          } finally {
+            client.release();
+          }
+        } else {
+          // If no reassignment target provided but force is true, 
+          // delete the associated customers first
+          const client = await db.pool.connect();
+          
+          try {
+            await client.query('BEGIN');
+            
+            // First, soft delete any leads associated with customers of this company
+            const deleteLeadsQuery = `
+              UPDATE leads
+              SET deleted_at = NOW()
+              WHERE customer_id IN (
+                SELECT id FROM customers 
+                WHERE company_id = $1 AND deleted_at IS NULL
+              )
+            `;
+            
+            await client.query(deleteLeadsQuery, [id]);
+            
+            // Then, soft delete the customers
+            const deleteCustomersQuery = `
+              UPDATE customers
+              SET deleted_at = NOW()
+              WHERE company_id = $1 AND deleted_at IS NULL
+            `;
+            
+            await client.query(deleteCustomersQuery, [id]);
+            
+            // Finally, soft delete the company
+            const deleteCompanyQuery = `
+              UPDATE companies
+              SET deleted_at = NOW()
+              WHERE id = $1
+            `;
+            
+            await client.query(deleteCompanyQuery, [id]);
+            
+            await client.query('COMMIT');
+            
+            const { response, statusCode } = formatSuccess(
+              null,
+              `Company and ${customerCount} associated customers deleted successfully`
+            );
+            
+            return res.status(statusCode).json(response);
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          } finally {
+            client.release();
+          }
+        }
+      } else {
+        // If not force deleting, provide information about associated customers
+        const detailedCustomersQuery = `
+          SELECT id, name, email
+          FROM customers
+          WHERE company_id = $1 AND deleted_at IS NULL
+          LIMIT 5
+        `;
+        
+        const detailedCustomersResult = await db.query(detailedCustomersQuery, [id]);
+        
+        // Prepare a helpful error message
+        const errorMessage = 'Cannot delete company with associated customers';
+        const additionalInfo = {
+          totalCustomers: customerCount,
+          sampleCustomers: detailedCustomersResult.rows,
+          solutions: [
+            "Use '?force=true' to delete the company and all associated customers",
+            "Use '?force=true&reassignToCompanyId=X' to reassign customers to another company"
+          ]
+        };
+        
+        throw new AppError(errorMessage, 'validation', additionalInfo);
+      }
     }
     
-    // Soft delete the company
+    // If no associated customers, proceed with normal deletion
     const deleteQuery = `
       UPDATE companies
       SET deleted_at = NOW()
@@ -407,11 +539,59 @@ const getCompanyCustomers = async (req, res, next) => {
   }
 };
 
+/**
+ * Get all available companies for reassignment
+ * GET /api/companies/available-for-reassignment
+ */
+const getAvailableCompaniesForReassignment = async (req, res, next) => {
+  try {
+    // Get the company ID to exclude (the one being deleted)
+    const { excludeId } = req.query;
+    
+    // Build query to get all active companies except the one being deleted
+    let query = `
+      SELECT 
+        id,
+        name,
+        industry,
+        location
+      FROM 
+        companies
+      WHERE 
+        deleted_at IS NULL
+    `;
+    
+    const queryParams = [];
+    let paramIndex = 1;
+    
+    if (excludeId) {
+      query += ` AND id != $${paramIndex}`;
+      queryParams.push(excludeId);
+      paramIndex++;
+    }
+    
+    // Order by name for easier selection
+    query += ` ORDER BY name ASC`;
+    
+    // Execute the query
+    const companiesResult = await db.query(query, queryParams);
+    
+    // Format response
+    const { response, statusCode } = formatSuccess({
+      companies: companiesResult.rows
+    });
+    
+    res.status(statusCode).json(response);
+  } catch (error) {
+    next(error);
+  }
+};
 module.exports = {
   getAllCompanies,
   getCompanyById,
   createCompany,
   updateCompany,
   deleteCompany,
-  getCompanyCustomers
+  getCompanyCustomers,
+  getAvailableCompaniesForReassignment
 };

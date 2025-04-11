@@ -6,7 +6,8 @@ const {
   createCompany, 
   updateCompany, 
   deleteCompany,
-  getCompanyCustomers
+  getCompanyCustomers,
+  getAvailableCompaniesForReassignment
 } = require('../controllers/companiesController');
 const { authenticate } = require('../middleware/auth');
 const { checkPermission } = require('../middleware/permissions');
@@ -72,14 +73,25 @@ router.put(
   updateCompany
 );
 
-// Delete company
+// Delete company route with updated validation
 router.delete(
   '/:id',
   [
-    param('id').isInt().withMessage('Company ID must be an integer')
+    param('id').isInt().withMessage('Company ID must be an integer'),
+    query('force').optional().isBoolean().withMessage('Force must be a boolean'),
+    query('reassignToCompanyId').optional().isInt().withMessage('Reassign company ID must be an integer')
   ],
   checkPermission('companies', 'delete'),
   deleteCompany
+);
+
+router.get(
+  '/available-for-reassignment',
+  [
+    query('excludeId').optional().isInt().withMessage('Exclude ID must be an integer')
+  ],
+  checkPermission('companies', 'read'),
+  getAvailableCompaniesForReassignment
 );
 
 module.exports = router;
