@@ -4,14 +4,13 @@ const { formatSuccess, formatError } = require("../utils/responseFormatter");
 const { AppError } = require("../utils/errorHandler");
 
 /**
- * Get all leads with optional filtering
+ * Get all leads with optional filtering (no pagination)
  * GET /api/leads
  */
 const getAllLeads = async (req, res, next) => {
   try {
-    // Extract query parameters
-    const { page = 1, limit = 10, stage = null, search = null } = req.query;
-    const offset = (page - 1) * limit;
+    // Extract query parameters for filtering (keeping only stage and search)
+    const { stage = null, search = null } = req.query;
 
     // Build base query
     let query = `
@@ -73,34 +72,15 @@ const getAllLeads = async (req, res, next) => {
       paramIndex++;
     }
 
-    // Count total leads for pagination
-    const countQuery = `
-      SELECT COUNT(*) as total 
-      FROM (${query}) as filtered_leads
-    `;
-
-    const countResult = await db.query(countQuery, queryParams);
-    const total = parseInt(countResult.rows[0].total);
-    const totalPages = Math.ceil(total / limit);
-
-    // Add pagination to the main query
-    query += ` ORDER BY l.created_at DESC LIMIT $${paramIndex} OFFSET $${
-      paramIndex + 1
-    }`;
-    queryParams.push(limit, offset);
+    // Sort by creation date
+    query += ` ORDER BY l.created_at DESC`;
 
     // Execute the query
     const leadsResult = await db.query(query, queryParams);
 
-    // Format response with pagination info
+    // Format response (without pagination info)
     const { response, statusCode } = formatSuccess({
       leads: leadsResult.rows,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages,
-      },
     });
 
     res.status(statusCode).json(response);
@@ -108,7 +88,6 @@ const getAllLeads = async (req, res, next) => {
     next(error);
   }
 };
-
 /**
  * Get a lead by ID
  * GET /api/leads/:id
