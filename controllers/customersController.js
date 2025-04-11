@@ -42,10 +42,10 @@ const getAllCustomers = async (req, res, next) => {
     // Apply search filter if provided
     if (search) {
       query += ` AND (
-        c.name ILIKE ${paramIndex}
-        OR c.email ILIKE ${paramIndex}
-        OR c.phone ILIKE ${paramIndex}
-        OR co.name ILIKE ${paramIndex}
+        c.name ILIKE $${paramIndex}
+        OR c.email ILIKE $${paramIndex}
+        OR c.phone ILIKE $${paramIndex}
+        OR co.name ILIKE $${paramIndex}
       )`;
       queryParams.push(`%${search}%`);
       paramIndex++;
@@ -53,7 +53,7 @@ const getAllCustomers = async (req, res, next) => {
 
     // Filter by user if not a super_admin
     if (req.user.role !== 'super_admin') {
-      query += ` AND c.created_by = ${paramIndex}`;
+      query += ` AND c.created_by = $${paramIndex}`;
       queryParams.push(req.user.id);
       paramIndex++;
     }
@@ -69,7 +69,7 @@ const getAllCustomers = async (req, res, next) => {
     const totalPages = Math.ceil(total / limit);
 
     // Add pagination to the main query
-    query += ` ORDER BY c.created_at DESC LIMIT ${paramIndex} OFFSET ${paramIndex + 1}`;
+    query += ` ORDER BY c.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     queryParams.push(limit, offset);
 
     // Execute the query

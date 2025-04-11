@@ -50,17 +50,17 @@ const getAllLeads = async (req, res, next) => {
 
     // Apply filters if provided
     if (stage) {
-      query += ` AND l.stage = ${paramIndex}`;
+      query += ` AND l.stage = $${paramIndex}`;
       queryParams.push(stage);
       paramIndex++;
     }
 
     if (search) {
       query += ` AND (
-        l.deal_name ILIKE ${paramIndex}
-        OR l.product ILIKE ${paramIndex}
-        OR c.name ILIKE ${paramIndex}
-        OR co.name ILIKE ${paramIndex}
+        l.deal_name ILIKE $${paramIndex}
+        OR l.product ILIKE $${paramIndex}
+        OR c.name ILIKE $${paramIndex}
+        OR co.name ILIKE $${paramIndex}
       )`;
       queryParams.push(`%${search}%`);
       paramIndex++;
@@ -68,7 +68,7 @@ const getAllLeads = async (req, res, next) => {
 
     // Filter by user if not a super_admin
     if (req.user.role !== 'super_admin') {
-      query += ` AND l.created_by = ${paramIndex}`;
+      query += ` AND l.created_by = $${paramIndex}`;
       queryParams.push(req.user.id);
       paramIndex++;
     }
@@ -84,7 +84,7 @@ const getAllLeads = async (req, res, next) => {
     const totalPages = Math.ceil(total / limit);
 
     // Add pagination to the main query
-    query += ` ORDER BY l.created_at DESC LIMIT ${paramIndex} OFFSET ${paramIndex + 1}`;
+    query += ` ORDER BY l.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
     queryParams.push(limit, offset);
 
     // Execute the query
