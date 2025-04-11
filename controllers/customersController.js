@@ -270,24 +270,24 @@ const updateCustomer = async (req, res, next) => {
     let paramIndex = 1;
     
     if (name !== undefined) {
-      updates.push(`name = ${paramIndex++}`);
+      updates.push(`name = $${paramIndex++}`);
       values.push(name);
     }
     
     if (email !== undefined) {
-      updates.push(`email = ${paramIndex++}`);
+      updates.push(`email = $${paramIndex++}`);
       values.push(email);
     }
     
     if (phone !== undefined) {
-      updates.push(`phone = ${paramIndex++}`);
+      updates.push(`phone = $${paramIndex++}`);
       values.push(phone);
     }
     
     if (companyId !== undefined) {
-      updates.push(`company_id = ${paramIndex++}`);
+      updates.push(`company_id = $${paramIndex++}`);
       values.push(companyId);
-    }
+    }    
     
     // Add updated_at timestamp
     updates.push(`updated_at = NOW()`);
@@ -301,20 +301,19 @@ const updateCustomer = async (req, res, next) => {
     
     // Update the customer
     const updateQuery = `
-      UPDATE customers
-      SET ${updates.join(', ')}
-      WHERE id = ${paramIndex}
-      RETURNING 
-        id, 
-        name, 
-        email, 
-        phone, 
-        company_id as "companyId", 
-        created_by as "createdBy",
-        created_at as "createdAt",
-        updated_at as "updatedAt"
-    `;
-    
+    UPDATE customers
+    SET ${updates.join(', ')}
+    WHERE id = $${paramIndex}
+    RETURNING 
+      id, 
+      name, 
+      email, 
+      phone, 
+      company_id as "companyId", 
+      created_by as "createdBy",
+      created_at as "createdAt",
+      updated_at as "updatedAt"
+  `;
     const customerResult = await db.query(updateQuery, values);
     
     const { response, statusCode } = formatSuccess({

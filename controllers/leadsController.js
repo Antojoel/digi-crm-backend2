@@ -1,7 +1,7 @@
-const { validationResult } = require('express-validator');
-const db = require('../config/db');
-const { formatSuccess, formatError } = require('../utils/responseFormatter');
-const { AppError } = require('../utils/errorHandler');
+const { validationResult } = require("express-validator");
+const db = require("../config/db");
+const { formatSuccess, formatError } = require("../utils/responseFormatter");
+const { AppError } = require("../utils/errorHandler");
 
 /**
  * Get all leads with optional filtering
@@ -67,7 +67,7 @@ const getAllLeads = async (req, res, next) => {
     }
 
     // Filter by user if not a super_admin
-    if (req.user.role !== 'super_admin') {
+    if (req.user.role !== "super_admin") {
       query += ` AND l.created_by = $${paramIndex}`;
       queryParams.push(req.user.id);
       paramIndex++;
@@ -84,7 +84,9 @@ const getAllLeads = async (req, res, next) => {
     const totalPages = Math.ceil(total / limit);
 
     // Add pagination to the main query
-    query += ` ORDER BY l.created_at DESC LIMIT $${paramIndex} OFFSET $${paramIndex + 1}`;
+    query += ` ORDER BY l.created_at DESC LIMIT $${paramIndex} OFFSET $${
+      paramIndex + 1
+    }`;
     queryParams.push(limit, offset);
 
     // Execute the query
@@ -97,8 +99,8 @@ const getAllLeads = async (req, res, next) => {
         total,
         page: parseInt(page),
         limit: parseInt(limit),
-        totalPages
-      }
+        totalPages,
+      },
     });
 
     res.status(statusCode).json(response);
@@ -155,18 +157,24 @@ const getLeadById = async (req, res, next) => {
     const result = await db.query(query, [id]);
 
     if (result.rows.length === 0) {
-      throw new AppError('Lead not found', 'not_found');
+      throw new AppError("Lead not found", "not_found");
     }
 
     // Check permission if not a super_admin and not the owner
-    if (req.user.role !== 'super_admin' && result.rows[0].createdBy !== req.user.id) {
-      if (!req.user.permissions.leads.includes('read')) {
-        throw new AppError('You do not have permission to view this lead', 'authorization');
+    if (
+      req.user.role !== "super_admin" &&
+      result.rows[0].createdBy !== req.user.id
+    ) {
+      if (!req.user.permissions.leads.includes("read")) {
+        throw new AppError(
+          "You do not have permission to view this lead",
+          "authorization"
+        );
       }
     }
 
     const { response, statusCode } = formatSuccess({
-      lead: result.rows[0]
+      lead: result.rows[0],
     });
 
     res.status(statusCode).json(response);
@@ -184,27 +192,27 @@ const createLead = async (req, res, next) => {
     // Validate request
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      throw new AppError('Validation error', 'validation', errors.array());
+      throw new AppError("Validation error", "validation", errors.array());
     }
 
     // Extract lead data from request body
-    const { 
-      dealName, 
-      amount, 
-      product, 
-      stage = 'new', 
-      date, 
-      customerId, 
+    const {
+      dealName,
+      amount,
+      product,
+      stage = "new",
+      date,
+      customerId,
       attainedThrough,
       documentUrl,
-      notes 
+      notes,
     } = req.body;
 
     // Start a transaction
     const client = await db.pool.connect();
-    
+
     try {
-      await client.query('BEGIN');
+      await client.query("BEGIN");
 
       // Insert the lead
       const insertQuery = `
@@ -245,33 +253,30 @@ const createLead = async (req, res, next) => {
         req.user.id,
         attainedThrough,
         documentUrl,
-        notes
+        notes,
       ]);
 
       // Add lead activity for creation
-      await client.query(
-        `SELECT add_lead_activity($1, $2, $3, $4, $5, $6)`,
-        [
-          leadResult.rows[0].id,
-          req.user.id,
-          'created',
-          'Lead created',
-          null,
-          JSON.stringify({ stage })
-        ]
-      );
+      await client.query(`SELECT add_lead_activity($1, $2, $3, $4, $5, $6)`, [
+        leadResult.rows[0].id,
+        req.user.id,
+        "created",
+        "Lead created",
+        null,
+        JSON.stringify({ stage }),
+      ]);
 
-      await client.query('COMMIT');
+      await client.query("COMMIT");
 
       const { response, statusCode } = formatSuccess(
         { lead: leadResult.rows[0] },
-        'Lead created successfully',
+        "Lead created successfully",
         201
       );
 
       res.status(statusCode).json(response);
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
@@ -290,32 +295,34 @@ const updateLead = async (req, res, next) => {
     // Validate request
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
-      throw new AppError('Validation error', 'validation', errors.array());
+      throw new AppError("Validation error", "validation", errors.array());
     }
 
     const { id } = req.params;
-    
-    // Check if lead exists and get current values
+
+    // Check if lead exists
     const checkQuery = `
       SELECT * FROM leads 
       WHERE id = $1 AND deleted_at IS NULL
     `;
-    
     const checkResult = await db.query(checkQuery, [id]);
-    
+
     if (checkResult.rows.length === 0) {
-      throw new AppError('Lead not found', 'not_found');
+      throw new AppError("Lead not found", "not_found");
     }
-    
+
     const lead = checkResult.rows[0];
-    
-    // Check permission if not a super_admin and not the owner
-    if (req.user.role !== 'super_admin' && lead.created_by !== req.user.id) {
-      if (!req.user.permissions.leads.includes('update')) {
-        throw new AppError('You do not have permission to update this lead', 'authorization');
+
+    // Authorization check
+    if (req.user.role !== "super_admin" && lead.created_by !== req.user.id) {
+      if (!req.user.permissions.leads.includes("update")) {
+        throw new AppError(
+          "You do not have permission to update this lead",
+          "authorization"
+        );
       }
     }
-    
+
     // Extract updatable fields
     const {
       dealName,
@@ -326,80 +333,69 @@ const updateLead = async (req, res, next) => {
       customerId,
       attainedThrough,
       documentUrl,
-      notes
+      notes,
     } = req.body;
-    
-    // Build update query dynamically based on provided fields
+
     const updates = [];
     const values = [];
     let paramIndex = 1;
-    
+
     if (dealName !== undefined) {
-      updates.push(`deal_name = ${paramIndex++}`);
+      updates.push(`deal_name = $${paramIndex++}`);
       values.push(dealName);
     }
-    
     if (amount !== undefined) {
-      updates.push(`amount = ${paramIndex++}`);
+      updates.push(`amount = $${paramIndex++}`);
       values.push(amount);
     }
-    
     if (product !== undefined) {
-      updates.push(`product = ${paramIndex++}`);
+      updates.push(`product = $${paramIndex++}`);
       values.push(product);
     }
-    
     if (stage !== undefined) {
-      updates.push(`stage = ${paramIndex++}`);
+      updates.push(`stage = $${paramIndex++}`);
       values.push(stage);
     }
-    
     if (date !== undefined) {
-      updates.push(`date = ${paramIndex++}`);
+      updates.push(`date = $${paramIndex++}`);
       values.push(date);
     }
-    
     if (customerId !== undefined) {
-      updates.push(`customer_id = ${paramIndex++}`);
+      updates.push(`customer_id = $${paramIndex++}`);
       values.push(customerId);
     }
-    
     if (attainedThrough !== undefined) {
-      updates.push(`attained_through = ${paramIndex++}`);
+      updates.push(`attained_through = $${paramIndex++}`);
       values.push(attainedThrough);
     }
-    
     if (documentUrl !== undefined) {
-      updates.push(`document_url = ${paramIndex++}`);
+      updates.push(`document_url = $${paramIndex++}`);
       values.push(documentUrl);
     }
-    
     if (notes !== undefined) {
-      updates.push(`notes = ${paramIndex++}`);
+      updates.push(`notes = $${paramIndex++}`);
       values.push(notes);
     }
-    
-    // Add updated_at timestamp
+
+    // Always update timestamp
     updates.push(`updated_at = NOW()`);
-    
+
     if (updates.length === 0) {
-      throw new AppError('No update fields provided', 'validation');
+      throw new AppError("No update fields provided", "validation");
     }
-    
-    // Add ID to the values array
+
+    // Add ID to the end for WHERE clause
     values.push(id);
-    
-    // Start a transaction
+
     const client = await db.pool.connect();
-    
+
     try {
-      await client.query('BEGIN');
-      
-      // Update the lead
+      await client.query("BEGIN");
+
       const updateQuery = `
         UPDATE leads
-        SET ${updates.join(', ')}
-        WHERE id = ${paramIndex}
+        SET ${updates.join(", ")}
+        WHERE id = $${paramIndex}
         RETURNING 
           id, 
           deal_name as "dealName", 
@@ -414,18 +410,18 @@ const updateLead = async (req, res, next) => {
           notes,
           updated_at as "updatedAt"
       `;
-      
+
       const leadResult = await client.query(updateQuery, values);
-      
-      await client.query('COMMIT');
-      
+
+      await client.query("COMMIT");
+
       const { response, statusCode } = formatSuccess({
-        lead: leadResult.rows[0]
+        lead: leadResult.rows[0],
       });
-      
+
       res.status(statusCode).json(response);
     } catch (error) {
-      await client.query('ROLLBACK');
+      await client.query("ROLLBACK");
       throw error;
     } finally {
       client.release();
@@ -442,42 +438,45 @@ const updateLead = async (req, res, next) => {
 const deleteLead = async (req, res, next) => {
   try {
     const { id } = req.params;
-    
+
     // Check if lead exists
     const checkQuery = `
       SELECT * FROM leads 
       WHERE id = $1 AND deleted_at IS NULL
     `;
-    
+
     const checkResult = await db.query(checkQuery, [id]);
-    
+
     if (checkResult.rows.length === 0) {
-      throw new AppError('Lead not found', 'not_found');
+      throw new AppError("Lead not found", "not_found");
     }
-    
+
     const lead = checkResult.rows[0];
-    
+
     // Check permission if not a super_admin and not the owner
-    if (req.user.role !== 'super_admin' && lead.created_by !== req.user.id) {
-      if (!req.user.permissions.leads.includes('delete')) {
-        throw new AppError('You do not have permission to delete this lead', 'authorization');
+    if (req.user.role !== "super_admin" && lead.created_by !== req.user.id) {
+      if (!req.user.permissions.leads.includes("delete")) {
+        throw new AppError(
+          "You do not have permission to delete this lead",
+          "authorization"
+        );
       }
     }
-    
+
     // Soft delete the lead
     const deleteQuery = `
       UPDATE leads
       SET deleted_at = NOW()
       WHERE id = $1
     `;
-    
+
     await db.query(deleteQuery, [id]);
-    
+
     const { response, statusCode } = formatSuccess(
       null,
-      'Lead deleted successfully'
+      "Lead deleted successfully"
     );
-    
+
     res.status(statusCode).json(response);
   } catch (error) {
     next(error);
@@ -489,5 +488,5 @@ module.exports = {
   getLeadById,
   createLead,
   updateLead,
-  deleteLead
+  deleteLead,
 };
